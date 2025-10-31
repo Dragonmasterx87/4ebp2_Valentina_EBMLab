@@ -2,7 +2,7 @@
 # The following set of code is a description of the analysis performed in the 
 # paper entitled "enter name of paper here"
 # Author Fahd Qadir FMJ Lab Tulane University, Schoool of Medicine
-# Date code was written: 03/23/2022
+# Date code was written: 31/10/2025
 # R version 4.2.1 (2019-12-12) 'Funny-Looking Kid'
 
 #!/usr/bin/env Rscript
@@ -123,4 +123,923 @@ set.seed(1234)
 
 cat("✓ All libraries loaded\n")
 
+# Explore scRNA-seq directory structure
 
+# First directory
+setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
+dir1 <- "C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/eMizrachi_10X3primev4OCM_07302025"
+cat("\n=== Directory 1 ===\n")
+cat(dir1, "\n\n")
+
+folders1 <- list.dirs(dir1, full.names = FALSE, recursive = FALSE)
+cat("Main folders (", length(folders1), "):\n")
+print(folders1)
+
+for(folder in folders1) {
+  cat("\n--- Contents of:", folder, "---\n")
+  files <- list.files(file.path(dir1, folder), recursive = FALSE)
+  print(files)
+}
+
+cat("\n\n" , rep("=", 60), "\n\n")
+
+# Second directory
+dir2 <- "C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/eMizrachi_10X3primev4OCM_08212025"
+cat("\n=== Directory 2 ===\n")
+cat(dir2, "\n\n")
+
+folders2 <- list.dirs(dir2, full.names = FALSE, recursive = FALSE)
+cat("Main folders (", length(folders2), "):\n")
+print(folders2)
+
+for(folder in folders2) {
+  cat("\n--- Contents of:", folder, "---\n")
+  files <- list.files(file.path(dir2, folder), recursive = FALSE)
+  print(files)
+}
+
+cat("\n\nDone exploring directories!\n")
+
+
+# Load and integrate scRNA-seq data with Harmony
+library(Seurat)
+library(harmony)
+library(ggplot2)
+library(dplyr)
+
+# Define directories
+dir1 <- "C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/eMizrachi_10X3primev4OCM_07302025"
+dir2 <- "C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/eMizrachi_10X3primev4OCM_08212025"
+
+# Sample metadata
+samples <- data.frame(
+  sample = c("Sample1", "Sample2", "Sample3", "Sample4", 
+             "Sample5", "Sample6", "Sample7", "Sample8"),
+  genotype = c("BP2_KO", "Control", "BP2_KO", "Control",
+               "BP2_KO", "Control", "Control", "Control"),
+  batch = c("Batch1", "Batch1", "Batch1", "Batch1",
+            "Batch2", "Batch2", "Batch2", "Batch2"),
+  directory = c(rep(dir1, 4), rep(dir2, 4))
+)
+
+print(samples)
+
+# Load each sample
+seurat_list <- list()
+
+for(i in 1:nrow(samples)) {
+  cat("\nLoading", samples$sample[i], "...\n")
+  
+  # Read data
+  data_path <- file.path(samples$directory[i], samples$sample[i], 
+                         "sample_filtered_feature_bc_matrix.h5")
+  counts <- Read10X_h5(data_path)
+  
+  # Create Seurat object
+  seurat_obj <- CreateSeuratObject(counts = counts, 
+                                   project = samples$sample[i],
+                                   min.cells = 3, 
+                                   min.features = 200)
+  
+  # Add metadata
+  seurat_obj$sample <- samples$sample[i]
+  seurat_obj$genotype <- samples$genotype[i]
+  seurat_obj$batch <- samples$batch[i]
+  
+  # Calculate mitochondrial percentage
+  seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^mt-")
+  
+  seurat_list[[samples$sample[i]]] <- seurat_obj
+}
+
+# Merge all samples
+seurat <- merge(seurat_list[[1]], y = seurat_list[2:8], 
+                add.cell.ids = samples$sample)
+
+cat("\n=== Merged object ===\n")
+print(seurat)
+print(table(seurat$sample))
+print(table(seurat$genotype))
+
+# QC filtering
+seurat <- subset(seurat, subset = nFeature_RNA > 200 & nFeature_RNA < 6000 & 
+                   percent.mt < 20)
+
+cat("\n=== After QC ===\n")
+print(seurat)
+
+# Standard workflow
+seurat <- NormalizeData(seurat)
+seurat <- FindVariableFeatures(seurat, selection.method = "vst", nfeatures = 2000)
+
+# Join layers for Seurat v5
+seurat <- JoinLayers(seurat)
+
+seurat <- ScaleData(seurat)
+seurat <- RunPCA(seurat, npcs = 50)
+
+# Run Harmony
+seurat <- RunHarmony(object = seurat, 
+                     group.by.vars = "batch")
+
+# Clustering and UMAP
+seurat <- RunUMAP(seurat, reduction = "harmony", dims = 1:30)
+seurat <- FindNeighbors(seurat, reduction = "harmony", dims = 1:30)
+seurat <- FindClusters(seurat, resolution = 0.5)
+
+# Save object
+qsave(seurat, "seurat_harmony_integrated.qs")
+
+# Basic plots
+p1 <- DimPlot(seurat, reduction = "umap", group.by = "sample")
+p2 <- DimPlot(seurat, reduction = "umap", group.by = "genotype")
+p3 <- DimPlot(seurat, reduction = "umap", group.by = "batch")
+p4 <- DimPlot(seurat, reduction = "umap", group.by = "seurat_clusters", label = TRUE)
+
+#ggsave("umap_by_sample.pdf", p1, width = 10, height = 8)
+#ggsave("umap_by_genotype.pdf", p2, width = 10, height = 8)
+#ggsave("umap_by_batch.pdf", p3, width = 10, height = 8)
+#ggsave("umap_clusters.pdf", p4, width = 10, height = 8)
+
+print(p1)
+print(p2)
+print(p3)
+print(p4)
+
+cat("\n=== Done! ===\n")
+cat("Saved: seurat_harmony_integrated.rds\n")
+cat("Total cells:", ncol(seurat), "\n")
+cat("By genotype:\n")
+print(table(seurat$genotype))
+
+# DGE analysis - find top markers per cluster
+library(Seurat)
+library(dplyr)
+
+# Load object
+seurat <- qread("seurat_harmony_integrated.qs")
+
+cat("Total clusters:", length(unique(seurat$seurat_clusters)), "\n\n")
+
+# Find markers for all clusters
+#devtools::install_github('immunogenomics/presto') #faster wilcoxon testing
+cat("Running DGE...\n")
+markers <- FindAllMarkers(seurat, only.pos = TRUE, min.pct = 0.25, 
+                          logfc.threshold = 0.25)
+
+# Get top 10 per cluster
+top10 <- markers %>% 
+  group_by(cluster) %>% 
+  top_n(n = 10, wt = avg_log2FC) %>%
+  arrange(cluster, desc(avg_log2FC))
+
+# Save
+write.csv(markers, "all_markers.csv", row.names = FALSE)
+write.csv(top10, "top10_markers_per_cluster.csv", row.names = FALSE)
+
+# Print top 10 for each cluster
+for(i in sort(unique(top10$cluster))) {
+  cat("\n========== Cluster", i, "==========\n")
+  cluster_genes <- top10 %>% filter(cluster == i)
+  print(cluster_genes[, c("gene", "avg_log2FC", "pct.1", "pct.2", "p_val_adj")])
+}
+
+cat("\n\nSaved: top10_markers_per_cluster.csv\n")
+
+
+# Reclassify proliferating and ISG+ cells with parent cell types
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(qs)
+library(RColorBrewer)
+
+setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
+
+# Load object
+seurat <- qread("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis/seurat_harmony_integrated.qs")
+
+# Define initial cell type annotations
+cell_types <- c(
+  "0" = "Activated T cells",
+  "1" = "Naive T cells",
+  "2" = "Effector T cells",
+  "3" = "CD8+ T cells",
+  "4" = "Plasma cells",
+  "5" = "Monocyte-derived DCs",
+  "6" = "T cells",
+  "7" = "Macrophages",
+  "8" = "cDC1",
+  "9" = "cDC2",
+  "10" = "Proliferating",
+  "11" = "Stromal",
+  "12" = "Gamma delta T cells",
+  "13" = "Tregs",
+  "14" = "pDC",
+  "15" = "Eosinophils",
+  "16" = "NK cells",
+  "17" = "Basophils",
+  "18" = "ISG+ cells",
+  "19" = "B cells",
+  "20" = "Neutrophils",
+  "21" = "Epithelial",
+  "22" = "M2 Macrophages",
+  "23" = "Endothelial",
+  "24" = "Neutrophils"
+)
+
+seurat@meta.data$cell_type_base <- cell_types[as.character(seurat@meta.data$seurat_clusters)]
+
+# Function to assign parent cell type based on marker expression
+assign_parent_type <- function(seurat_subset) {
+  # Get expression data
+  data <- GetAssayData(seurat_subset, layer = "data")
+  
+  # Score each cell for different lineages
+  scores <- data.frame(
+    T_cell = colMeans(data[c("Cd3e", "Cd3d"), , drop = FALSE]),
+    CD8_T = colMeans(data[c("Cd8a", "Cd8b1"), , drop = FALSE]),
+    CD4_T = colMeans(data[c("Cd4"), , drop = FALSE]),
+    Myeloid = colMeans(data[c("Lyz2", "Cd68", "Csf1r"), , drop = FALSE]),
+    NK = colMeans(data[c("Ncr1", "Klrb1c", "Nkg7"), , drop = FALSE]),
+    B_cell = colMeans(data[c("Cd19", "Ms4a1"), , drop = FALSE])
+  )
+  
+  # Assign to highest scoring lineage
+  parent_types <- apply(scores, 1, function(x) {
+    max_score <- max(x)
+    if(max_score < 0.1) return("Unknown")  # Low expression threshold
+    names(which.max(x))
+  })
+  
+  # Convert to readable names
+  parent_map <- c(
+    "T_cell" = "T cells",
+    "CD8_T" = "CD8+ T cells",
+    "CD4_T" = "CD4+ T cells",
+    "Myeloid" = "Myeloid",
+    "NK" = "NK cells",
+    "B_cell" = "B cells",
+    "Unknown" = "Unknown"
+  )
+  
+  return(parent_map[parent_types])
+}
+
+# Assign parent types for proliferating cells
+cat("Assigning parent types to proliferating cells...\n")
+prolif_cells <- seurat@meta.data$cell_type_base == "Proliferating"
+seurat_prolif <- subset(seurat, cells = colnames(seurat)[prolif_cells])
+parent_types_prolif <- assign_parent_type(seurat_prolif)
+seurat@meta.data$cell_type[prolif_cells] <- paste0("Proliferating ", parent_types_prolif)
+
+# Assign parent types for ISG+ cells
+cat("Assigning parent types to ISG+ cells...\n")
+isg_cells <- seurat@meta.data$cell_type_base == "ISG+ cells"
+seurat_isg <- subset(seurat, cells = colnames(seurat)[isg_cells])
+parent_types_isg <- assign_parent_type(seurat_isg)
+seurat@meta.data$cell_type[isg_cells] <- paste0("ISG+ ", parent_types_isg)
+
+# For all other cells, use base annotation
+other_cells <- !(prolif_cells | isg_cells)
+seurat@meta.data$cell_type[other_cells] <- seurat@meta.data$cell_type_base[other_cells]
+
+# Clean up
+seurat@meta.data$cell_type_base <- NULL
+
+# Check results
+cat("\n=== Updated cell type counts ===\n")
+print(table(seurat@meta.data$cell_type))
+
+# Save annotated object
+qsave(seurat, "C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis/seurat_annotated.qs")
+cat("\nSaved: ../seurat_annotated.qs\n")
+
+# Create better color palette
+n_types <- length(unique(seurat@meta.data$cell_type))
+cat("\nTotal cell types:", n_types, "\n")
+
+# Custom color palette - distinct and colorblind friendly
+custom_colors <- c(
+  # T cells - blues/purples
+  "Activated T cells" = "#4E79A7",
+  "Naive T cells" = "#A0CBE8",
+  "Effector T cells" = "#59A14F",
+  "CD8+ T cells" = "#8CD17D",
+  "CD4+ T cells" = "#B6992D",
+  "T cells" = "#86BCB6",
+  "Gamma delta T cells" = "#499894",
+  "Tregs" = "#F28E2B",
+  "Proliferating T cells" = "#4E79A7",
+  "Proliferating CD8+ T cells" = "#76B7B2",
+  "Proliferating CD4+ T cells" = "#B07AA1",
+  "ISG+ T cells" = "#9C755F",
+  "ISG+ CD8+ T cells" = "#BAB0AC",
+  "ISG+ CD4+ T cells" = "#D37295",
+  
+  # Myeloid - reds/oranges
+  "Macrophages" = "#E15759",
+  "M2 Macrophages" = "#FF9DA7",
+  "Monocyte-derived DCs" = "#F28E2B",
+  "Myeloid" = "#FFBE7D",
+  "Proliferating Myeloid" = "#D4A373",
+  "ISG+ Myeloid" = "#CA6680",
+  
+  # DCs - yellows
+  "cDC1" = "#EDC948",
+  "cDC2" = "#F1CE63",
+  "pDC" = "#FABFD2",
+  
+  # Granulocytes - pinks/purples
+  "Neutrophils" = "#D37295",
+  "Eosinophils" = "#FABFD2",
+  "Basophils" = "#B07AA1",
+  
+  # NK - greens
+  "NK cells" = "#59A14F",
+  "Proliferating NK cells" = "#79706E",
+  "ISG+ NK cells" = "#A0CBE8",
+  
+  # B cells - light blues
+  "B cells" = "#A0CBE8",
+  "Plasma cells" = "#76B7B2",
+  "Proliferating B cells" = "#86BCB6",
+  "ISG+ B cells" = "#9D7660",
+  
+  # Non-immune - grays
+  "Stromal" = "#BAB0AC",
+  "Epithelial" = "#D37295",
+  "Endothelial" = "#FABFD2",
+  
+  # Unknown
+  "Unknown" = "#D3D3D3",
+  "Proliferating Unknown" = "#A9A9A9",
+  "ISG+ Unknown" = "#808080"
+)
+
+# Plot by cell type
+p1 <- DimPlot(seurat, reduction = "umap", group.by = "cell_type", label = TRUE, 
+              repel = TRUE, cols = custom_colors) + 
+  theme(legend.position = "bottom", legend.text = element_text(size = 8)) +
+  guides(color = guide_legend(ncol = 3, override.aes = list(size = 3)))
+
+p2 <- DimPlot(seurat, reduction = "umap", group.by = "genotype", shuffle = TRUE,
+              cols = c("BP2_KO" = "#E15759", "Control" = "#4E79A7"))
+
+p3 <- DimPlot(seurat, reduction = "umap", group.by = "sample", shuffle = TRUE)
+
+ggsave("umap_cell_types_updated.pdf", p1, width = 14, height = 12)
+ggsave("umap_genotype_annotated.pdf", p2, width = 10, height = 8)
+ggsave("umap_sample_annotated.pdf", p3, width = 12, height = 8)
+
+print(p1)
+print(p2)
+print(p3)
+
+# Cell type counts
+cat("\n=== Cell type counts ===\n")
+print(table(seurat@meta.data$cell_type))
+
+cat("\n=== By genotype ===\n")
+print(table(seurat@meta.data$cell_type, seurat@meta.data$genotype))
+
+# Save summary
+summary_df <- as.data.frame(table(seurat@meta.data$cell_type, seurat@meta.data$genotype))
+colnames(summary_df) <- c("Cell_Type", "Genotype", "Count")
+write.csv(summary_df, "cell_type_by_genotype_updated.csv", row.names = FALSE)
+
+cat("\n=== Reclassification complete! ===\n")
+
+# Fix Unknown cell classifications - COMPLETE SCRIPT
+library(Seurat)
+library(qs)
+library(dplyr)
+
+setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
+
+# Load object
+seurat <- qread("../seurat_annotated.qs")
+
+cat("=== Before fixing Unknowns ===\n")
+print(table(seurat@meta.data$cell_type))
+
+# Find the unknown cells
+unknown_cells <- grep("Unknown", seurat@meta.data$cell_type)
+cat("\nTotal Unknown cells:", length(unknown_cells), "\n")
+
+if(length(unknown_cells) > 0) {
+  # Subset unknown cells
+  seurat_unknown <- subset(seurat, cells = colnames(seurat)[unknown_cells])
+  
+  # Look at their original clusters
+  cat("\nOriginal clusters of Unknown cells:\n")
+  print(table(seurat_unknown@meta.data$seurat_clusters))
+  
+  # Check expression of key markers
+  data <- GetAssayData(seurat_unknown, layer = "data")
+  
+  # Expanded marker set
+  markers_to_check <- c(
+    "Cd3e", "Cd3d", "Cd4", "Cd8a", "Cd8b1",  # T cells
+    "Lyz2", "Cd68", "Csf1r", "Itgam", "Cd14",  # Myeloid
+    "Ncr1", "Klrb1c", "Nkg7", "Gzma",  # NK
+    "Cd19", "Ms4a1", "Cd79a",  # B cells
+    "Itgax", "H2-Ab1", "Flt3",  # DCs
+    "Foxp3", "Ctla4"  # Tregs
+  )
+  
+  cat("\n=== Expression in Unknown cells ===\n")
+  for(marker in markers_to_check) {
+    if(marker %in% rownames(data)) {
+      n_pos <- sum(data[marker, ] > 0)
+      if(n_pos > 0) {
+        cat(marker, ":", n_pos, "cells positive\n")
+      }
+    }
+  }
+  
+  # Better scoring function - no threshold, just assign to best match
+  scores <- data.frame(
+    T_cell = colMeans(data[c("Cd3e", "Cd3d"), , drop = FALSE]),
+    CD8_T = colMeans(data[c("Cd8a", "Cd8b1"), , drop = FALSE]),
+    CD4_T = colMeans(data["Cd4", , drop = FALSE]),
+    Myeloid = colMeans(data[c("Lyz2", "Cd68", "Csf1r"), , drop = FALSE]),
+    NK = colMeans(data[c("Ncr1", "Klrb1c", "Nkg7"), , drop = FALSE]),
+    B_cell = colMeans(data[c("Cd19", "Ms4a1"), , drop = FALSE]),
+    DC = colMeans(data[c("Itgax", "H2-Ab1"), , drop = FALSE])
+  )
+  
+  # Assign to highest score (no threshold)
+  parent_types <- apply(scores, 1, function(x) {
+    names(which.max(x))
+  })
+  
+  parent_map <- c(
+    "T_cell" = "T cells",
+    "CD8_T" = "CD8+ T cells",
+    "CD4_T" = "CD4+ T cells",
+    "Myeloid" = "Myeloid",
+    "NK" = "NK cells",
+    "B_cell" = "B cells",
+    "DC" = "DCs"
+  )
+  
+  parent_types_clean <- parent_map[parent_types]
+  
+  cat("\n=== New assignments for Unknown cells ===\n")
+  print(table(parent_types_clean))
+  
+  # Update in main object
+  is_prolif_unknown <- grepl("Proliferating Unknown", seurat@meta.data$cell_type[unknown_cells])
+  is_isg_unknown <- grepl("ISG\\+ Unknown", seurat@meta.data$cell_type[unknown_cells])
+  
+  # Update proliferating unknowns
+  prolif_unknown_idx <- unknown_cells[is_prolif_unknown]
+  if(length(prolif_unknown_idx) > 0) {
+    new_labels <- paste0("Proliferating ", parent_types_clean[is_prolif_unknown])
+    seurat@meta.data$cell_type[prolif_unknown_idx] <- new_labels
+    cat("\nFixed", length(prolif_unknown_idx), "Proliferating Unknown cells\n")
+  }
+  
+  # Update ISG unknowns
+  isg_unknown_idx <- unknown_cells[is_isg_unknown]
+  if(length(isg_unknown_idx) > 0) {
+    new_labels <- paste0("ISG+ ", parent_types_clean[is_isg_unknown])
+    seurat@meta.data$cell_type[isg_unknown_idx] <- new_labels
+    cat("Fixed", length(isg_unknown_idx), "ISG+ Unknown cells\n")
+  }
+  
+  cat("\n=== After fixing Unknowns ===\n")
+  print(table(seurat@meta.data$cell_type))
+  
+  # Check if any unknowns remain
+  remaining_unknown <- sum(grepl("Unknown", seurat@meta.data$cell_type))
+  if(remaining_unknown > 0) {
+    cat("\nWARNING:", remaining_unknown, "Unknown cells still remain!\n")
+  } else {
+    cat("\n✓ All Unknown cells successfully reclassified!\n")
+  }
+  
+  # Save updated object
+  qsave(seurat, "../seurat_annotated.qs")
+  cat("\n✓ Saved updated object to: ../seurat_annotated.qs\n")
+  
+} else {
+  cat("No Unknown cells found! Object is already clean.\n")
+}
+
+cat("\n=== Done! ===\n")
+cat("Total cell types:", length(unique(seurat@meta.data$cell_type)), "\n")
+
+# DGE and ORA analysis for BP2_KO vs Control by cell type - UPDATED
+library(Seurat)
+library(qs)
+library(dplyr)
+library(gprofiler2)
+
+setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
+
+# Load annotated object
+seurat <- qread("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis/seurat_annotated.qs")
+
+# Set output directories
+dge_dir <- "DGE_analysis"
+ora_dir <- "ORA_analysis"
+
+dir.create(dge_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path(ora_dir, "UP"), showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path(ora_dir, "DOWN"), showWarnings = FALSE, recursive = TRUE)
+
+# Get unique cell types
+cell_types <- unique(seurat@meta.data$cell_type)
+cell_types <- cell_types[!is.na(cell_types)]
+
+cat("Analyzing", length(cell_types), "cell types\n")
+
+# Set default assay
+DefaultAssay(seurat) <- "RNA"
+
+# Loop through each cell type
+for(ct in cell_types) {
+  
+  cat("\n========================================\n")
+  cat("Processing:", ct, "\n")
+  
+  # Subset to this cell type
+  seurat_subset <- subset(seurat, subset = cell_type == ct)
+  
+  # Check if we have both genotypes
+  n_ko <- sum(seurat_subset@meta.data$genotype == "BP2_KO")
+  n_ctrl <- sum(seurat_subset@meta.data$genotype == "Control")
+  
+  cat("BP2_KO cells:", n_ko, "| Control cells:", n_ctrl, "\n")
+  
+  if(n_ko < 3 || n_ctrl < 3) {
+    cat("Skipping - not enough cells in both groups\n")
+    next
+  }
+  
+  # Run DGE
+  cat("Running DGE...\n")
+  Idents(seurat_subset) <- seurat_subset@meta.data$genotype
+  
+  tryCatch({
+    markers <- FindMarkers(seurat_subset, 
+                           ident.1 = "BP2_KO", 
+                           ident.2 = "Control",
+                           logfc.threshold = 0,
+                           min.pct = 0.1,
+                           test.use = "wilcox")
+    
+    markers$gene <- rownames(markers)
+    
+    # Clean cell type name for filename
+    clean_name <- gsub(" ", "_", ct)
+    clean_name <- gsub("/", "_", clean_name)
+    clean_name <- gsub("\\+", "plus", clean_name)
+    
+    # Save DGE results
+    dge_file <- file.path(dge_dir, paste0(clean_name, "_BP2KOvsControl.csv"))
+    write.csv(markers, dge_file, row.names = FALSE)
+    cat("Saved DGE:", dge_file, "\n")
+    
+    # Get significant up and down genes
+    up_genes <- filter(markers, p_val_adj < 0.05 & avg_log2FC > 0)$gene
+    down_genes <- filter(markers, p_val_adj < 0.05 & avg_log2FC < 0)$gene
+    
+    cat("Upregulated:", length(up_genes), "| Downregulated:", length(down_genes), "\n")
+    
+    # ORA for upregulated genes
+    if(length(up_genes) > 0) {
+      cat("Running ORA for UP genes...\n")
+      go_up <- gost(up_genes, organism = "mmusculus", significant = TRUE, 
+                    user_threshold = 0.05, correction_method = "fdr", 
+                    domain_scope = "annotated", sources = "GO", evcodes = TRUE)
+      
+      if(!is.null(go_up$result)) {
+        go_up_res <- as.data.frame(go_up$result)
+        
+        # Rename columns
+        if("p_value" %in% names(go_up_res)) {
+          names(go_up_res)[names(go_up_res) == "p_value"] <- "hypergeometric FDR"
+        }
+        
+        # Remove unwanted columns
+        drop_cols <- c("parents", "source_order", "effective_domain_size", 
+                       "query", "precision", "recall", "evidence_codes")
+        go_up_res <- select(go_up_res, -any_of(drop_cols))
+        
+        # Save
+        ora_up_file <- file.path(ora_dir, "UP", paste0(clean_name, "_BP2KOvsControl.csv"))
+        write.csv(go_up_res, ora_up_file, row.names = FALSE)
+        cat("Saved ORA UP:", ora_up_file, "\n")
+      } else {
+        cat("No significant GO terms for UP genes\n")
+      }
+    }
+    
+    # ORA for downregulated genes
+    if(length(down_genes) > 0) {
+      cat("Running ORA for DOWN genes...\n")
+      go_down <- gost(down_genes, organism = "mmusculus", significant = TRUE,
+                      user_threshold = 0.05, correction_method = "fdr",
+                      domain_scope = "annotated", sources = "GO", evcodes = TRUE)
+      
+      if(!is.null(go_down$result)) {
+        go_down_res <- as.data.frame(go_down$result)
+        
+        # Rename columns
+        if("p_value" %in% names(go_down_res)) {
+          names(go_down_res)[names(go_down_res) == "p_value"] <- "hypergeometric FDR"
+        }
+        
+        # Remove unwanted columns
+        drop_cols <- c("parents", "source_order", "effective_domain_size",
+                       "query", "precision", "recall", "evidence_codes")
+        go_down_res <- select(go_down_res, -any_of(drop_cols))
+        
+        # Save
+        ora_down_file <- file.path(ora_dir, "DOWN", paste0(clean_name, "_BP2KOvsControl.csv"))
+        write.csv(go_down_res, ora_down_file, row.names = FALSE)
+        cat("Saved ORA DOWN:", ora_down_file, "\n")
+      } else {
+        cat("No significant GO terms for DOWN genes\n")
+      }
+    }
+    
+  }, error = function(e) {
+    cat("Error processing", ct, ":", e$message, "\n")
+  })
+}
+
+cat("\n========================================\n")
+cat("All done!\n")
+cat("DGE results in:", dge_dir, "\n")
+cat("ORA results in:", ora_dir, "\n")
+
+# See metadata
+# Show all available metadata columns
+table(seurat@meta.data$cell_type)
+
+# ======================================================
+# Cell type distribution plots — FIXED (adds Proliferating DCs,
+# strict palette, consistent legend/stack order)
+# ======================================================
+
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(qs)
+
+setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
+
+# Load annotated object
+seurat <- qread("../seurat_annotated.qs")
+
+# ------------------------------------------------------
+# Custom color palette (now includes Proliferating DCs)
+# ------------------------------------------------------
+custom_colors <- c(
+  # T cells - blues/purples
+  "Activated T cells" = "#4E79A7",
+  "Naive T cells" = "#A0CBE8",
+  "Effector T cells" = "#59A14F",
+  "CD8+ T cells" = "#8CD17D",
+  "CD4+ T cells" = "#B6992D",
+  "T cells" = "#86BCB6",
+  "Gamma delta T cells" = "#499894",
+  "Tregs" = "#F28E2B",
+  "Proliferating T cells" = "#4E79A7",
+  "Proliferating CD8+ T cells" = "#76B7B2",
+  "Proliferating CD4+ T cells" = "#B07AA1",
+  
+  # ISG subsets
+  "ISG+ CD8+ T cells" = "#BAB0AC",
+  "ISG+ CD4+ T cells" = "#D37295",
+  "ISG+ Myeloid" = "#CA6680",
+  "ISG+ T cells" = "#9C755F",
+  "ISG+ DCs" = "#F1CE63",
+  
+  # Myeloid - reds/oranges
+  "Macrophages" = "#E15759",
+  "M2 Macrophages" = "#FF9DA7",
+  "Monocyte-derived DCs" = "#F28E2B",
+  "Myeloid" = "#FFBE7D",
+  "Proliferating Myeloid" = "#D4A373",
+  
+  # DCs - yellows
+  "cDC1" = "#EDC948",
+  "cDC2" = "#F1CE63",
+  "pDC"  = "#FABFD2",
+  "Proliferating DCs" = "#C49A00",  # <-- added
+  
+  # Granulocytes - pinks/purples
+  "Neutrophils" = "#D37295",
+  "Eosinophils" = "#FABFD2",
+  "Basophils" = "#B07AA1",
+  
+  # NK - greens
+  "NK cells" = "#59A14F",
+  "Proliferating NK cells" = "#79706E",
+  
+  # B cells - light blues
+  "B cells" = "#A0CBE8",
+  "Plasma cells" = "#76B7B2",
+  "Proliferating B cells" = "#86BCB6",
+  
+  # Non-immune
+  "Stromal" = "#BAB0AC",
+  "Epithelial" = "#D37295",
+  "Endothelial" = "#FABFD2"
+)
+
+# Strict check: fail if any present cell_type lacks a color
+present_types <- sort(unique(seurat@meta.data$cell_type))
+missing_types <- setdiff(present_types, names(custom_colors))
+if (length(missing_types) > 0) {
+  stop("Missing colors for: ", paste(missing_types, collapse = ", "))
+}
+
+# Use a consistent factor order for stacking/legend (palette order)
+# Keep only present types, but preserve palette order
+ordered_types <- names(custom_colors)[names(custom_colors) %in% present_types]
+seurat@meta.data$cell_type <- factor(seurat@meta.data$cell_type, levels = ordered_types)
+
+# ------------------------------------------------------
+# Calculate % composition per sample and per genotype
+# ------------------------------------------------------
+counts_sample <- as.data.frame(table(seurat@meta.data$sample, seurat@meta.data$cell_type))
+colnames(counts_sample) <- c("Sample", "Cell_Type", "Count")
+
+counts_sample <- counts_sample %>%
+  group_by(Sample) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+# Attach genotype info
+sample_info <- unique(seurat@meta.data[, c("sample", "genotype")])
+counts_sample <- merge(counts_sample, sample_info, by.x = "Sample", by.y = "sample", all.x = TRUE)
+
+# Ensure Cell_Type uses the same ordered factor as metadata
+counts_sample$Cell_Type <- factor(counts_sample$Cell_Type, levels = ordered_types)
+
+# Optional: order samples by genotype then alphabetically
+if (all(c("Sample","genotype") %in% colnames(counts_sample))) {
+  sample_order <- counts_sample %>%
+    distinct(Sample, genotype) %>%
+    arrange(genotype, Sample) %>%
+    pull(Sample)
+  counts_sample$Sample <- factor(counts_sample$Sample, levels = unique(sample_order))
+}
+
+# ------------------------------------------------------
+# Plot 1: by sample (stacked bar)
+# ------------------------------------------------------
+p_sample <- ggplot(counts_sample, aes(x = Sample, y = Percentage, fill = Cell_Type)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = custom_colors[levels(counts_sample$Cell_Type)], drop = FALSE) +
+  labs(title = "Cell Type Distribution by Sample", y = "Percentage (%)", x = "", fill = "Cell Type") +
+  theme_classic(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right",
+    legend.text = element_text(size = 8)
+  ) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 100))
+
+ggsave("celltype_distribution_by_sample_FINAL.pdf", p_sample, width = 14, height = 8)
+ggsave("celltype_distribution_by_sample_FINAL.png", p_sample, width = 14, height = 8, dpi = 300)
+print(p_sample)
+
+# ------------------------------------------------------
+# Plot 2: by genotype
+# ------------------------------------------------------
+counts_genotype <- as.data.frame(table(seurat@meta.data$genotype, seurat@meta.data$cell_type))
+colnames(counts_genotype) <- c("Genotype", "Cell_Type", "Count")
+
+counts_genotype <- counts_genotype %>%
+  group_by(Genotype) %>%
+  mutate(Percentage = Count / sum(Count) * 100) %>%
+  ungroup()
+
+counts_genotype$Cell_Type <- factor(counts_genotype$Cell_Type, levels = ordered_types)
+
+p_genotype <- ggplot(counts_genotype, aes(x = Genotype, y = Percentage, fill = Cell_Type)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = custom_colors[levels(counts_genotype$Cell_Type)], drop = FALSE) +
+  labs(title = "Cell Type Distribution by Genotype", y = "Percentage (%)", x = "", fill = "Cell Type") +
+  theme_classic(base_size = 12) +
+  theme(
+    axis.text.x = element_text(size = 14),
+    legend.position = "right",
+    legend.text = element_text(size = 8)
+  ) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 100))
+
+ggsave("celltype_distribution_by_genotype_FINAL.pdf", p_genotype, width = 12, height = 8)
+ggsave("celltype_distribution_by_genotype_FINAL.png", p_genotype, width = 12, height = 8, dpi = 300)
+print(p_genotype)
+
+# ------------------------------------------------------
+# Save data summaries
+# ------------------------------------------------------
+write.csv(counts_sample, "celltype_percentages_by_sample_FINAL.csv", row.names = FALSE)
+write.csv(counts_genotype, "celltype_percentages_by_genotype_FINAL.csv", row.names = FALSE)
+
+cat("\n✓ Done — Fixed palette + consistent legend/stack order.\n")
+
+# ============================================
+# UMAP colored by cell_type (strict palette)
+# ============================================
+
+library(Seurat)
+library(ggplot2)
+library(qs)
+library(dplyr)
+
+setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
+seurat <- qread("../seurat_annotated.qs")
+
+# --- same palette (includes Proliferating DCs) ---
+custom_colors <- c(
+  "Activated T cells" = "#4E79A7",
+  "Naive T cells" = "#A0CBE8",
+  "Effector T cells" = "#59A14F",
+  "CD8+ T cells" = "#8CD17D",
+  "CD4+ T cells" = "#B6992D",
+  "T cells" = "#86BCB6",
+  "Gamma delta T cells" = "#499894",
+  "Tregs" = "#F28E2B",
+  "Proliferating T cells" = "#4E79A7",
+  "Proliferating CD8+ T cells" = "#76B7B2",
+  "Proliferating CD4+ T cells" = "#B07AA1",
+  "ISG+ CD8+ T cells" = "#BAB0AC",
+  "ISG+ CD4+ T cells" = "#D37295",
+  "ISG+ Myeloid" = "#CA6680",
+  "ISG+ T cells" = "#9C755F",
+  "ISG+ DCs" = "#F1CE63",
+  "Macrophages" = "#E15759",
+  "M2 Macrophages" = "#FF9DA7",
+  "Monocyte-derived DCs" = "#F28E2B",
+  "Myeloid" = "#FFBE7D",
+  "Proliferating Myeloid" = "#D4A373",
+  "cDC1" = "#EDC948",
+  "cDC2" = "#F1CE63",
+  "pDC"  = "#FABFD2",
+  "Proliferating DCs" = "#C49A00",
+  "Neutrophils" = "#D37295",
+  "Eosinophils" = "#FABFD2",
+  "Basophils" = "#B07AA1",
+  "NK cells" = "#59A14F",
+  "Proliferating NK cells" = "#79706E",
+  "B cells" = "#A0CBE8",
+  "Plasma cells" = "#76B7B2",
+  "Proliferating B cells" = "#86BCB6",
+  "Stromal" = "#BAB0AC",
+  "Epithelial" = "#D37295",
+  "Endothelial" = "#FABFD2"
+)
+
+present_types <- sort(unique(seurat@meta.data$cell_type))
+missing_types <- setdiff(present_types, names(custom_colors))
+if (length(missing_types) > 0) stop("Missing colors for: ", paste(missing_types, collapse = ", "))
+
+# lock factor order to palette (present types only)
+ordered_types <- names(custom_colors)[names(custom_colors) %in% present_types]
+seurat@meta.data$cell_type <- factor(seurat@meta.data$cell_type, levels = ordered_types)
+
+# UMAP
+p_umap <- DimPlot(
+  seurat,
+  reduction = "umap",
+  group.by = "cell_type",
+  label = TRUE, repel = TRUE, label.size = 3,
+  cols = custom_colors[levels(seurat@meta.data$cell_type)]
+) +
+  ggtitle("UMAP: cell_type") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    legend.position = "right",
+    legend.text = element_text(size = 7)
+  ) +
+  guides(colour = guide_legend(ncol = 2, override.aes = list(size = 3)))
+
+ggsave("UMAP_cell_type_FINAL.pdf", p_umap, width = 12, height = 10)
+ggsave("UMAP_cell_type_FINAL.png", p_umap, width = 12, height = 10, dpi = 300)
+print(p_umap)
+
+# Optional: faceted UMAP by genotype with same colors
+p_umap_geno <- DimPlot(
+  seurat,
+  reduction = "umap",
+  group.by = "cell_type",
+  split.by = "genotype",
+  label = FALSE, cols = custom_colors[levels(seurat@meta.data$cell_type)]
+) +
+  ggtitle("UMAP: cell_type by genotype") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5, size = 16))
+
+ggsave("UMAP_cell_type_by_genotype_FINAL.pdf", p_umap_geno, width = 14, height = 7)
+ggsave("UMAP_cell_type_by_genotype_FINAL.png", p_umap_geno, width = 14, height = 7, dpi = 300)
