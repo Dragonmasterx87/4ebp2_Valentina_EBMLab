@@ -167,16 +167,23 @@ library(harmony)
 library(ggplot2)
 library(dplyr)
 
+# SET WORKING DIRECTORY - ALL FILES WILL SAVE HERE
+setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
+
+cat("✓ All libraries loaded\n")
+cat("✓ Working directory set to:\n")
+cat("  ", getwd(), "\n")
+
 # Define directories
 dir1 <- "C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/eMizrachi_10X3primev4OCM_07302025"
 dir2 <- "C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/eMizrachi_10X3primev4OCM_08212025"
 
-# Sample metadata
+# Sample metadata - CORRECTED
 samples <- data.frame(
   sample = c("Sample1", "Sample2", "Sample3", "Sample4", 
              "Sample5", "Sample6", "Sample7", "Sample8"),
   genotype = c("BP2_KO", "Control", "BP2_KO", "Control",
-               "BP2_KO", "Control", "Control", "Control"),
+               "BP2_KO", "BP2_KO", "Control", "Control"),  # Fixed Sample6
   batch = c("Batch1", "Batch1", "Batch1", "Batch1",
             "Batch2", "Batch2", "Batch2", "Batch2"),
   directory = c(rep(dir1, 4), rep(dir2, 4))
@@ -640,7 +647,7 @@ library(gprofiler2)
 setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
 
 # Load annotated object
-seurat <- qread("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis/seurat_annotated.qs")
+seurat <- qread("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis/seurat_annotated_CORRECTED.qs")
 
 # Set output directories
 dge_dir <- "DGE_analysis"
@@ -794,7 +801,7 @@ library(qs)
 setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
 
 # Load annotated object
-seurat <- qread("../seurat_annotated.qs")
+seurat <- qread("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis/seurat_annotated_CORRECTED.qs")
 
 # ------------------------------------------------------
 # Custom color palette (now includes Proliferating DCs)
@@ -958,7 +965,9 @@ library(qs)
 library(dplyr)
 
 setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
-seurat <- qread("../seurat_annotated.qs")
+# Load annotated object
+seurat <- qread("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis/seurat_annotated_CORRECTED.qs")
+
 
 # --- same palette (includes Proliferating DCs) ---
 custom_colors <- c(
@@ -1043,3 +1052,32 @@ p_umap_geno <- DimPlot(
 
 ggsave("UMAP_cell_type_by_genotype_FINAL.pdf", p_umap_geno, width = 14, height = 7)
 ggsave("UMAP_cell_type_by_genotype_FINAL.png", p_umap_geno, width = 14, height = 7, dpi = 300)
+
+# #
+# library(Seurat)
+# library(qs)
+# 
+# # Set working directory
+# setwd("C:/Users/mqadir/Box/scRNAseq NOD pancreas immune cells/Analysis")
+# 
+# # Load the existing object
+# seurat <- qread("seurat_annotated.qs")
+# 
+# # Check current metadata for Sample6
+# cat("Before correction:\n")
+# table(seurat$sample, seurat$genotype)
+# 
+# # Fix Sample6 genotype
+# seurat@meta.data$genotype[seurat@meta.data$sample == "Sample6"] <- "BP2_KO"
+# 
+# # Verify the fix
+# cat("\nAfter correction:\n")
+# table(seurat$sample, seurat$genotype)
+# 
+# cat("\nCells per genotype:\n")
+# table(seurat$genotype)
+# 
+# # Save corrected object
+# qsave(seurat, "seurat_annotated_CORRECTED.qs")
+# 
+# cat("\n✓ Saved corrected object as: seurat_annotated_CORRECTED.qs\n")
